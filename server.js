@@ -11,7 +11,6 @@ app.get('/health', (req, res) => res.json({ status: 'ok', rooms: rooms.size }));
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*', methods: ['GET', 'POST'] },
-  // Allow both polling and websocket so Render's proxy works
   transports: ['websocket', 'polling'],
 });
 
@@ -66,8 +65,8 @@ io.on('connection', (socket) => {
     rooms.set(roomCode, room);
     socket.join(roomCode);
     socket.data.roomCode = roomCode;
-    socket.emit('roomCreated', { roomCode, playerId: socket.id });
-    io.to(roomCode).emit('roomUpdated', sanitizeRoom(room));
+    // Send room data inline with roomCreated so client has it immediately
+    socket.emit('roomCreated', { roomCode, playerId: socket.id, room: sanitizeRoom(room) });
   });
 
   socket.on('joinRoom', ({ roomCode, playerName }) => {
@@ -87,8 +86,16 @@ io.on('connection', (socket) => {
     room.players.push({ id: socket.id, name: playerName });
     socket.join(roomCode);
     socket.data.roomCode = roomCode;
-    socket.emit('roomJoined', { roomCode, playerId: socket.id });
-    io.to(roomCode).emit('roomUpdated', sanitizeRoom(room));
+    // Send room data inline with roomJoined so client has it immediately
+    socket.emit('roomJoined', { roomCode, playerId: socket.id, room: sanitizeRoom(room) });
+    // Notify all OTHER players in the room
+    socket.to(roomCode).emit('roomUpdated', sanitizeRoom(room));
+  });
+
+  // Fallback: client can request current room state at any time
+  socket.on('getRoom', ({ roomCode }) => {
+    const room = rooms.get(roomCode);
+    if (room) socket.emit('roomUpdated', sanitizeRoom(room));
   });
 
   socket.on('setMafiaCount', ({ roomCode, mafiaCount }) => {
@@ -160,7 +167,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n🎭 Mafia server running on port ${PORT}`);
-  console.log(`   Find your local IP with: ipconfig (Windows) or ifconfig (Mac/Linux)`);
-  console.log(`   Update config.js in MafiaApp with: http://<YOUR_IP>:${PORT}\n`);
+  console.log(`Mafia server running on port ${PORT}`);
 });
