@@ -85,13 +85,12 @@ export default function Game({ params }) {
       </div>
 
       {/* Role reveal — tap/click triggers cheat sequence */}
-      <div style={s.roleCenter} onClick={handleTap} title="Tap 1-3-2 times for secret reveal">
+      <div style={s.roleCenter} onClick={handleTap}>
         <div style={{...s.roleTitle, color:cfg.color, fontSize:'clamp(40px,14vw,88px)', whiteSpace:'nowrap'}}>
           {role.toUpperCase()}
         </div>
         <div style={{...s.divider, background:cfg.color}} />
         <div style={s.roleMsg}>{cfg.message}</div>
-        <div style={s.tapHint}>Tap to reveal secrets (1-3-2)</div>
       </div>
 
       {/* Mafia partners */}
@@ -153,7 +152,6 @@ const s = {
   roleTitle: { fontWeight:900, letterSpacing:'0.05em', textAlign:'center', textShadow:'0 0 60px currentColor' },
   divider: { width:60, height:3, borderRadius:2, margin:'24px 0', opacity:0.8 },
   roleMsg: { fontSize:'clamp(16px,4vw,22px)', color:'#ccc', textAlign:'center', lineHeight:1.6, fontWeight:300, whiteSpace:'pre-line' },
-  tapHint: { color:'#333', fontSize:11, marginTop:24, letterSpacing:'0.1em' },
   mafiaPanel: { background:'rgba(230,57,70,0.12)', borderTop:'1px solid rgba(230,57,70,0.3)', padding:24 },
   mafiaPanelLabel: { color:'#e63946', fontSize:11, letterSpacing:'0.2em', fontWeight:700, marginBottom:14, textAlign:'center' },
   mafiaRow: { display:'flex', alignItems:'center', justifyContent:'center', marginBottom:10 },

@@ -54,7 +54,7 @@ export default function Home({ navigate }) {
   return (
     <div style={s.page}>
       <div style={s.header}>
-        <h1 style={s.title}>MAFIA</h1>
+        <img src="/logo.png" alt="Mafia" style={s.logo} />
         <p style={s.subtitle}>THE SOCIAL DEDUCTION GAME</p>
         <span style={{ ...s.dot, background: connected ? '#2dc653' : '#555' }} />
       </div>
@@ -109,7 +109,7 @@ export default function Home({ navigate }) {
 const s = {
   page: { display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:'100dvh', padding:'24px 20px' },
   header: { textAlign:'center', marginBottom:48 },
-  title: { fontSize:'clamp(60px,15vw,96px)', fontWeight:900, color:'#e63946', letterSpacing:'0.15em', textShadow:'0 0 40px #e6394680' },
+  logo: { width:'clamp(180px,40vw,280px)', height:'auto', marginBottom:8 },
   subtitle: { fontSize:12, color:'#555', letterSpacing:'0.3em', marginTop:8 },
   dot: { display:'inline-block', width:8, height:8, borderRadius:'50%', marginTop:12 },
   card: { background:'#14142a', border:'1px solid #1e1e3a', borderRadius:16, padding:'28px 24px', width:'100%', maxWidth:400 },
