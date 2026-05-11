@@ -141,16 +141,16 @@ io.on('connection', (socket) => {
     });
     const allMafiaNames = Object.values(mafiaNameMap);
 
+    // Full list sent to everyone — UI shows it only on cheat code (1-3-2 taps)
+    const allPlayersList = room.players.map((p) => ({ name: p.name, role: roleMap[p.id] || 'Unknown' }));
+
     room.players.forEach((player) => {
       const role = roleMap[player.id];
       const payload = {
         role,
         organizerName,
-        // Mafia only sees OTHER mafia members, not themselves
         mafiaNames: role === 'Mafia' ? allMafiaNames.filter((n) => n !== player.name) : [],
-        allPlayers: role === 'Organizer'
-          ? room.players.map((p) => ({ name: p.name, role: roleMap[p.id] || 'Unknown' }))
-          : null,
+        allPlayers: allPlayersList,
       };
       io.to(player.id).emit('gameStarted', payload);
     });
