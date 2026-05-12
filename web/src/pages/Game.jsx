@@ -1,4 +1,5 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import socket from '../socket.js';
 
 const ROLES = {
   Mafia:     { color:'#e63946', bg:'#1a0508', message:"You're a Mafia.\nEliminate people to win." },
@@ -12,7 +13,24 @@ const CHEAT = [1, 3, 2];
 
 function rc(role) { return ROLES[role] || ROLES.Villager; }
 
-// ── 1-3-2 cheat code hook ────────────────────────────────────────────────
+// Web Audio beep — different pitch for each count
+function beep(freq = 880) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.4, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.35);
+  } catch (_) {}
+}
+
+// ── 1-3-2 cheat code hook ───────────────────────────────────────────────────
 function useCheatCode(onSuccess) {
   const stage = useRef(0);
   const count = useRef(0);
@@ -33,7 +51,16 @@ function useCheatCode(onSuccess) {
   }, [onSuccess]);
 }
 
-// ── All-roles overlay ────────────────────────────────────────────────────
+// ── Countdown overlay ────────────────────────────────────────────────────────
+function CountdownOverlay({ count }) {
+  return (
+    <div style={cd.screen}>
+      <div style={cd.number}>{count}</div>
+    </div>
+  );
+}
+
+// ── All-roles overlay ────────────────────────────────────────────────────────
 function AllRolesOverlay({ allPlayers, onClose }) {
   const sorted = [...(allPlayers||[])].sort((a,b)=>ROLE_ORDER.indexOf(a.role)-ROLE_ORDER.indexOf(b.role));
   return (
@@ -60,19 +87,76 @@ function AllRolesOverlay({ allPlayers, onClose }) {
   );
 }
 
-// ── Main ─────────────────────────────────────────────────────────────────
-export default function Game({ params }) {
-  const { gameData, playerName } = params;
+// ── Post-game overlay ────────────────────────────────────────────────────────
+function PostGameOverlay({ onRejoin, onHome }) {
+  return (
+    <div style={pg.container}>
+      <div style={pg.inner}>
+        <div style={pg.title}>GAME OVER</div>
+        <div style={pg.subtitle}>What would you like to do?</div>
+        <button style={pg.rejoinBtn} onClick={onRejoin}>Rejoin Game</button>
+        <button style={pg.homeBtn} onClick={onHome}>Home Screen</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────────
+export default function Game({ params, navigate }) {
+  const { gameData, playerName, playerId, roomCode } = params;
   const { role, organizerName, mafiaNames, allPlayers } = gameData;
   const cfg = rc(role);
+
+  const [countdown, setCountdown] = useState(3);
   const [showCheat, setShowCheat] = useState(false);
+  const [endRoom, setEndRoom] = useState(null);
   const handleTap = useCheatCode(() => setShowCheat(true));
+
+  // Countdown tick with audio beep
+  useEffect(() => {
+    if (countdown === null) return;
+    beep(countdown === 1 ? 1100 : 880);
+    const t = setTimeout(() => {
+      setCountdown((prev) => (prev <= 1 ? null : prev - 1));
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [countdown]);
+
+  // Listen for gameEnded from server
+  useEffect(() => {
+    const onGameEnded = ({ room }) => setEndRoom(room);
+    socket.on('gameEnded', onGameEnded);
+    return () => socket.off('gameEnded', onGameEnded);
+  }, []);
+
+  function handleGameCompleted() {
+    socket.emit('gameCompleted', { roomCode });
+  }
+
+  function handleRejoin() {
+    if (!endRoom) return;
+    navigate('lobby', {
+      roomCode: endRoom.code,
+      playerId: socket.id,
+      playerName,
+      isHost: endRoom.hostId === socket.id,
+      initialRoom: endRoom,
+    });
+  }
+
+  function handleGoHome() {
+    if (endRoom) socket.emit('leaveRoom', { roomCode: endRoom.code });
+    navigate('home', { playerName });
+  }
+
+  // ── Countdown screen ──
+  if (countdown !== null) return <CountdownOverlay count={countdown} />;
 
   const sorted = [...(allPlayers||[])].sort((a,b)=>ROLE_ORDER.indexOf(a.role)-ROLE_ORDER.indexOf(b.role));
 
   return (
     <div style={{...s.page, background: cfg.bg}}>
-      {/* Top bar: Organizer name left, Your name right */}
+      {/* Top bar */}
       <div style={s.topBar}>
         <div>
           <div style={s.orgLabel}>ORGANIZER</div>
@@ -84,7 +168,7 @@ export default function Game({ params }) {
         </div>
       </div>
 
-      {/* Role reveal — tap/click triggers cheat sequence */}
+      {/* Role reveal */}
       <div style={s.roleCenter} onClick={handleTap}>
         <div style={{...s.roleTitle, color:cfg.color, fontSize:'clamp(40px,14vw,88px)', whiteSpace:'nowrap'}}>
           {role.toUpperCase()}
@@ -128,7 +212,15 @@ export default function Game({ params }) {
         </div>
       )}
 
+      {/* Game Completed button — Organizer only */}
+      {role === 'Organizer' && (
+        <button style={s.gameCompleteBtn} onClick={handleGameCompleted}>
+          Game Completed
+        </button>
+      )}
+
       {showCheat && <AllRolesOverlay allPlayers={allPlayers} onClose={()=>setShowCheat(false)} />}
+      {endRoom   && <PostGameOverlay onRejoin={handleRejoin} onHome={handleGoHome} />}
     </div>
   );
 }
@@ -158,16 +250,33 @@ const s = {
   mafiaDot: { width:8, height:8, borderRadius:'50%', background:'#e63946', marginRight:12, flexShrink:0, display:'inline-block' },
   mafiaName: { color:'#fff', fontSize:20, fontWeight:600 },
   mafiaSolo: { color:'#888', fontSize:14, textAlign:'center', fontStyle:'italic' },
-  orgPanel: { padding:'0 20px 20px' },
+  orgPanel: { padding:'0 20px 12px' },
   orgPanelHeader: { color:'#555', fontSize:11, letterSpacing:'0.2em', marginBottom:12, textAlign:'center' },
-  orgList: { display:'flex', flexDirection:'column', gap:8, maxHeight:340, overflowY:'auto' },
+  orgList: { display:'flex', flexDirection:'column', gap:8, maxHeight:280, overflowY:'auto' },
   orgRow: { display:'flex', alignItems:'center', background:'rgba(255,255,255,0.04)', borderRadius:10, padding:'12px 16px' },
   orgRowName: { flex:1, color:'#fff', fontSize:16, fontWeight:500 },
   rolePill: { borderRadius:8, padding:'4px 10px', fontSize:12, fontWeight:700, letterSpacing:'0.04em', border:'1px solid' },
+  gameCompleteBtn: {
+    margin:'0 16px 16px', padding:'16px', borderRadius:14,
+    background:'#1a1a2e', border:'1px solid #ffd70055',
+    color:'#ffd700', fontSize:15, fontWeight:700, letterSpacing:'0.06em', cursor:'pointer',
+  },
+};
+
+// ── Countdown styles ──────────────────────────────────────────────────────────
+const cd = {
+  screen: {
+    position:'fixed', inset:0, background:'#0a0a18', zIndex:200,
+    display:'flex', alignItems:'center', justifyContent:'center',
+  },
+  number: {
+    fontSize:'clamp(180px,45vw,260px)', fontWeight:900, color:'#e63946',
+    textShadow:'0 0 80px #e6394680', lineHeight:1,
+  },
 };
 
 const ov = {
-  container: { position:'fixed', inset:0, background:'#0a0a18', zIndex:1000, display:'flex', flexDirection:'column' },
+  container: { position:'fixed', inset:0, background:'#0a0a18', zIndex:100, display:'flex', flexDirection:'column' },
   inner: { display:'flex', flexDirection:'column', flex:1, maxWidth:480, margin:'0 auto', width:'100%' },
   header: { padding:'28px 24px', textAlign:'center', borderBottom:'1px solid #1e1e3a' },
   title: { color:'#fff', fontSize:28, fontWeight:900, letterSpacing:'0.15em' },
@@ -177,4 +286,13 @@ const ov = {
   pname: { flex:1, color:'#fff', fontSize:17, fontWeight:600 },
   pill: { borderRadius:8, padding:'5px 12px', fontSize:13, fontWeight:700, letterSpacing:'0.04em', border:'1px solid' },
   closeBtn: { margin:20, background:'#1e1e3a', color:'#ccc', borderRadius:14, padding:'16px', fontSize:16, fontWeight:600, border:'1px solid #3a3a5a', cursor:'pointer' },
+};
+
+const pg = {
+  container: { position:'fixed', inset:0, background:'#0a0a18', zIndex:150, display:'flex', alignItems:'center', justifyContent:'center' },
+  inner: { display:'flex', flexDirection:'column', alignItems:'center', padding:'0 32px', width:'100%', maxWidth:420 },
+  title: { color:'#e63946', fontSize:'clamp(40px,12vw,64px)', fontWeight:900, letterSpacing:'0.15em', marginBottom:12 },
+  subtitle: { color:'#555', fontSize:13, letterSpacing:'0.15em', marginBottom:60 },
+  rejoinBtn: { width:'100%', background:'#e63946', color:'#fff', borderRadius:14, padding:'18px', fontSize:17, fontWeight:700, marginBottom:16, cursor:'pointer' },
+  homeBtn: { width:'100%', background:'#1e1e3a', color:'#ccc', borderRadius:14, padding:'18px', fontSize:17, fontWeight:600, border:'1px solid #3a3a5a', cursor:'pointer' },
 };

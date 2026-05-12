@@ -21,8 +21,18 @@ function generateRoomCode() {
   return code;
 }
 
+// Unbiased Fisher-Yates shuffle — fixes repeated roles across games
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 function assignRoles(players, mafiaCount) {
-  const shuffled = [...players].sort(() => Math.random() - 0.5);
+  const shuffled = shuffle(players);
   const roleMap = {};
   let i = 0;
   roleMap[shuffled[i++].id] = 'Organizer';
@@ -73,7 +83,6 @@ io.on('connection', (socket) => {
     rooms.set(roomCode, room);
     socket.join(roomCode);
     socket.data.roomCode = roomCode;
-    // Send room inline — avoids race condition where roomUpdated arrives before lobby mounts
     socket.emit('roomCreated', { roomCode, playerId: socket.id, room: sanitizeRoom(room) });
   });
 
@@ -84,7 +93,6 @@ io.on('connection', (socket) => {
     if (room.players.some((p) => p.name.toLowerCase() === playerName.toLowerCase())) {
       socket.emit('joinError', { message: 'That name is already taken in this room.' }); return;
     }
-    // Remove any ghost entry with this socket ID (reconnect case)
     room.players = room.players.filter((p) => p.id !== socket.id);
     room.players.push({ id: socket.id, name: playerName });
     socket.join(roomCode);
@@ -93,14 +101,12 @@ io.on('connection', (socket) => {
     socket.to(roomCode).emit('roomUpdated', sanitizeRoom(room));
   });
 
-  // Client requests current room state (fallback on mount)
   socket.on('getRoom', ({ roomCode }) => {
     const room = rooms.get(roomCode);
     if (room) socket.emit('roomUpdated', sanitizeRoom(room));
     else socket.emit('roomNotFound');
   });
 
-  // Explicit leave (back button / navigating home)
   socket.on('leaveRoom', ({ roomCode }) => {
     const room = rooms.get(roomCode);
     if (!room) return;
@@ -128,11 +134,10 @@ io.on('connection', (socket) => {
     }
     const roleMap = assignRoles(room.players, room.mafiaCount);
     room.status = 'playing';
+    room.roleMap = roleMap; // stored so gameCompleted can verify the Organizer
 
-    // Derive key info
     const organizer = room.players.find((p) => roleMap[p.id] === 'Organizer');
     const organizerName = organizer ? organizer.name : '';
-    // Only include actual Mafia player IDs
     const mafiaPlayerIds = Object.entries(roleMap).filter(([, r]) => r === 'Mafia').map(([id]) => id);
     const mafiaNameMap = {};
     mafiaPlayerIds.forEach((id) => {
@@ -140,8 +145,6 @@ io.on('connection', (socket) => {
       if (p) mafiaNameMap[id] = p.name;
     });
     const allMafiaNames = Object.values(mafiaNameMap);
-
-    // Full list sent to everyone — UI shows it only on cheat code (1-3-2 taps)
     const allPlayersList = room.players.map((p) => ({ name: p.name, role: roleMap[p.id] || 'Unknown' }));
 
     room.players.forEach((player) => {
@@ -149,11 +152,23 @@ io.on('connection', (socket) => {
       const payload = {
         role,
         organizerName,
+        roomCode,
         mafiaNames: role === 'Mafia' ? allMafiaNames.filter((n) => n !== player.name) : [],
         allPlayers: allPlayersList,
       };
       io.to(player.id).emit('gameStarted', payload);
     });
+  });
+
+  // Organizer signals game is over — resets room to lobby and notifies all players
+  socket.on('gameCompleted', ({ roomCode }) => {
+    const room = rooms.get(roomCode);
+    if (!room || room.status !== 'playing') return;
+    if (!room.roleMap || room.roleMap[socket.id] !== 'Organizer') return;
+    room.status = 'lobby';
+    delete room.roleMap;
+    io.to(roomCode).emit('gameEnded', { room: sanitizeRoom(room) });
+    console.log(`Game completed in room ${roomCode}`);
   });
 
   socket.on('disconnect', () => {

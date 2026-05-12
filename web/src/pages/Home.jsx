@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import socket from '../socket.js';
 
-export default function Home({ navigate }) {
-  const [name, setName] = useState('');
+export default function Home({ navigate, params = {} }) {
+  const [name, setName] = useState(params.playerName || '');
   const [code, setCode] = useState('');
   const [mode, setMode] = useState('menu');
   const [loading, setLoading] = useState(false);

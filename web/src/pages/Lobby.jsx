@@ -14,7 +14,7 @@ export default function Lobby({ navigate, params }) {
     const onYouAreHost  = () => setIsHost(true);
     const onGameStarted = (gameData) => {
       gameStartedRef.current = true;
-      navigate('game', { gameData, playerName, playerId });
+      navigate('game', { gameData, playerName, playerId, roomCode });
     };
     const onGameError   = ({ message }) => alert(message);
     const onRoomNotFound = () => {

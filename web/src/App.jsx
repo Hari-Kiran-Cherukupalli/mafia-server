@@ -14,5 +14,5 @@ export default function App() {
 
   if (screen === 'lobby') return <Lobby navigate={navigate} params={params} />;
   if (screen === 'game')  return <Game  navigate={navigate} params={params} />;
-  return <Home navigate={navigate} />;
+  return <Home navigate={navigate} params={params} />;
 }
